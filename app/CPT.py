@@ -16,17 +16,27 @@ st.markdown(
 
 # ===================== CPT ANALYSIS FUNCTION =====================
 def CPT(df, dfs, icd):
-    # ===================== PAGE TITLE =====================
+
     st.title("CPT Analysis")
 
-    # ----------------------------- BASIC CLEANING -----------------------------
-    df = df.copy()
-    icd = icd.copy()
-    df['Visit Date'] = pd.to_datetime(df['Visit Date'], errors='coerce')
-    icd['Date'] = pd.to_datetime(icd['Date'], errors='coerce')
-    df['Receivable'] = pd.to_numeric(df['Receivable'], errors='coerce').fillna(0)
+    # ---------------- BASIC CLEANING ----------------
+    dfs = dfs.copy()  # <-- use global filtered dfs
+    dfs['Visit Date'] = pd.to_datetime(dfs['Visit Date'], errors='coerce')
+    dfs['Receivable'] = pd.to_numeric(dfs['Receivable'], errors='coerce').fillna(0)
 
-    # ===================== EXECUTIVE METRICS (FULL DATA) =====================
+    # ---------------- REQUIRED COLUMNS CHECK ----------------
+    required_columns = [
+        'CPT Type', 'Category Level', 'Visit Date', 'CID',
+        'CPT Desc.', 'Receivable', 'Insurance Status',
+        'CPT Code', 'Department'
+    ]
+
+    for col in required_columns:
+        if col not in dfs.columns:
+            st.error(f"Column '{col}' not found in dataframe.")
+            return
+
+    # ---------------- EXECUTIVE METRICS ----------------
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
         st.metric("Total Visits", f"{df['CID'].nunique():,}")
@@ -37,115 +47,154 @@ def CPT(df, dfs, icd):
 
     st.divider()
 
-    # ===================== TABLE BUILDER FUNCTION (PATIENT COUNT) =====================
-    def build_tables(data):
-        cpt_count_tbl = (
-            data.groupby(['CPT Desc.', 'Insurance Status'])['CID']
-            .nunique()
-            .reset_index()
-            .pivot(index='CPT Desc.', columns='Insurance Status', values='CID')
-            .fillna(0)
-        )
-        if len(cpt_count_tbl) == 0:
-            return pd.DataFrame(columns=['CPT Desc.', 'Cash', 'Insurance', 'Total', 'Total %'])
+    # ===================== CPT TYPE DROPDOWN =====================
+    cpt_types = sorted(dfs['CPT Type'].dropna().unique())
 
-        cpt_count_tbl['Total'] = cpt_count_tbl.sum(axis=1)
-        cpt_count_tbl['Total %'] = (cpt_count_tbl['Total'] / cpt_count_tbl['Total'].sum() * 100)
-        cpt_count_tbl = cpt_count_tbl.reset_index()
-
-        # Sort by Total % descending
-        cpt_count_tbl = cpt_count_tbl.sort_values('Total %', ascending=False)
-
-        count_cols = cpt_count_tbl.columns.drop(['CPT Desc.', 'Total %'])
-        cpt_count_tbl[count_cols] = (
-            cpt_count_tbl[count_cols]
-            .astype(int)
-            .applymap(lambda x: f"{x:,}")
-        )
-        cpt_count_tbl['Total %'] = cpt_count_tbl['Total %'].map(lambda x: f"{x:.2f}%")
-        return cpt_count_tbl
-
-    # ===================== TABLE BUILDER FUNCTION (REVENUE) =====================
-    def build_revenue_table(data):
-        if len(data) == 0:
-            return pd.DataFrame(columns=['CPT Desc.', 'Cash', 'Insurance', 'Total', 'Total %'])
-
-        revenue_tbl = (
-            data.groupby(['CPT Desc.', 'Insurance Status'])['Receivable']
-            .sum()
-            .reset_index()
-            .pivot(index='CPT Desc.', columns='Insurance Status', values='Receivable')
-            .fillna(0)
-        )
-        revenue_tbl['Total'] = revenue_tbl.sum(axis=1)
-        total_sum = revenue_tbl['Total'].sum()
-        revenue_tbl['Total %'] = revenue_tbl['Total'] / total_sum * 100 if total_sum != 0 else 0
-        revenue_tbl = revenue_tbl.reset_index()
-
-        # Sort by Total % descending
-        revenue_tbl = revenue_tbl.sort_values('Total %', ascending=False)
-
-        value_cols = revenue_tbl.columns.drop(['CPT Desc.', 'Total %'])
-        revenue_tbl[value_cols] = revenue_tbl[value_cols].applymap(lambda x: f"{x:,.0f}")
-        revenue_tbl['Total %'] = revenue_tbl['Total %'].map(lambda x: f"{x:.2f}%")
-
-        return revenue_tbl
-
-    # ===================== MULTIPLE TABLES BY CPT TYPE WITH TOGGLES =====================
-    if 'CPT Type' not in df.columns:
-        st.error("Column 'CPT Type' not found in dataframe.")
+    if not cpt_types:
+        st.info("No CPT Types found.")
         return
 
-    cpt_types = sorted(df['CPT Type'].dropna().unique())
+    selected_cpt_type = st.selectbox("Select CPT Type", cpt_types)
+
+    df_type = dfs[dfs['CPT Type'] == selected_cpt_type]  # <-- filtered from dfs
+
+    if df_type.empty:
+        st.info("No data available for selected CPT Type.")
+        return
+
+    # ---------------- PERIOD FILTER ----------------
     today = pd.Timestamp.today().normalize()
 
-    for cpt_type in cpt_types:
-        st.header(f"{cpt_type}")
-        df_type = df[df['CPT Type'] == cpt_type]
+    selected_period = st.radio(
+        "Select Period",
+        [
+            "Today",
+            "Yesterday",
+            "This Month",
+            "Previous Month",
+            "Last 3 Months",
+            "Last 6 Months",
+            "This Year",
+            "Custom"
+        ],
+        horizontal=True
+    )
 
-        # ----------------------------- PER-TABLE PERIOD FILTER -----------------------------
-        period_filters = {
-            "Today": df_type[df_type['Visit Date'] == today],
-            "Yesterday": df_type[df_type['Visit Date'] == today - pd.Timedelta(days=1)],
-            "This Month": df_type[
-                (df_type['Visit Date'].dt.year == today.year) &
-                (df_type['Visit Date'].dt.month == today.month)
-            ],
-            "Previous Month": df_type[
-                (df_type['Visit Date'].dt.year == (today - pd.DateOffset(months=1)).year) &
-                (df_type['Visit Date'].dt.month == (today - pd.DateOffset(months=1)).month)
-            ],
-            "This Quarter": df_type[
-                ((df_type['Visit Date'].dt.month - 1) // 3 + 1) == ((today.month - 1) // 3 + 1)
-            ],
-            "1 Year": df_type[df_type['Visit Date'] >= today - pd.DateOffset(years=1)],
-            "Above 1 Year": df_type[df_type['Visit Date'] < today - pd.DateOffset(years=1)]
-        }
+    df_filtered = df_type.copy()
 
-        # ---------- PER-TABLE RADIO TOGGLE ----------
-        selected_period = st.radio(
-            f"Select Period for {cpt_type}",
-            list(period_filters.keys()),
-            key=f"cpt_period_{cpt_type}",
-            horizontal=True
+    if selected_period == "Today":
+        df_filtered = df_type[df_type['Visit Date'] == today]
+
+    elif selected_period == "Yesterday":
+        df_filtered = df_type[df_type['Visit Date'] == today - pd.Timedelta(days=1)]
+
+    elif selected_period == "This Month":
+        df_filtered = df_type[
+            (df_type['Visit Date'].dt.year == today.year) &
+            (df_type['Visit Date'].dt.month == today.month)
+        ]
+
+    elif selected_period == "Previous Month":
+        prev_month = today - pd.DateOffset(months=1)
+        df_filtered = df_type[
+            (df_type['Visit Date'].dt.year == prev_month.year) &
+            (df_type['Visit Date'].dt.month == prev_month.month)
+        ]
+
+    elif selected_period == "Last 3 Months":
+        df_filtered = df_type[df_type['Visit Date'] >= today - pd.DateOffset(months=3)]
+
+    elif selected_period == "Last 6 Months":
+        df_filtered = df_type[df_type['Visit Date'] >= today - pd.DateOffset(months=6)]
+
+    elif selected_period == "This Year":
+        df_filtered = df_type[df_type['Visit Date'].dt.year == today.year]
+
+    elif selected_period == "Custom":
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date", today - pd.DateOffset(months=1))
+        with col2:
+            end_date = st.date_input("End Date", today)
+        df_filtered = df_type[
+            (df_type['Visit Date'] >= pd.to_datetime(start_date)) &
+            (df_type['Visit Date'] <= pd.to_datetime(end_date))
+        ]
+
+    if df_filtered.empty:
+        st.info("No data available for selected period.")
+        return
+
+    st.divider()
+
+    # ===================== TABLE BUILDERS =====================
+    def build_patient_table(data):
+        if data.empty:
+            return pd.DataFrame()
+        tbl = (
+            data.groupby([
+                'CPT Code', 'CPT Description', 'Department', 'Insurance Status'
+            ])['CID']
+            .nunique()
+            .reset_index()
+            .pivot(
+                index=['CPT Code', 'CPT Description', 'Department'],
+                columns='Insurance Status',
+                values='CID'
+            )
+            .fillna(0)
         )
+        tbl['Total'] = tbl.sum(axis=1)
+        tbl['Total %'] = tbl['Total'] / tbl['Total'].sum() * 100
+        tbl = tbl.reset_index().sort_values('Total %', ascending=False)
+        count_cols = tbl.columns.drop(['CPT Code', 'CPT Description', 'Department', 'Total %'])
+        tbl[count_cols] = tbl[count_cols].astype(int).applymap(lambda x: f"{x:,}")
+        tbl['Total %'] = tbl['Total %'].map(lambda x: f"{x:.2f}%")
+        return tbl
 
-        df_filtered = period_filters[selected_period].copy()
+    def build_revenue_table(data):
+        if data.empty:
+            return pd.DataFrame()
+        tbl = (
+            data.groupby([
+                'CPT Code', 'CPT Description', 'Department', 'Insurance Status'
+            ])['Receivable']
+            .sum()
+            .reset_index()
+            .pivot(
+                index=['CPT Code', 'CPT Description', 'Department'],
+                columns='Insurance Status',
+                values='Receivable'
+            )
+            .fillna(0)
+        )
+        tbl['Total'] = tbl.sum(axis=1)
+        total_sum = tbl['Total'].sum()
+        tbl['Total %'] = (tbl['Total'] / total_sum * 100) if total_sum != 0 else 0
+        tbl = tbl.reset_index().sort_values('Total %', ascending=False)
+        value_cols = tbl.columns.drop(['CPT Code', 'CPT Description', 'Department', 'Total %'])
+        tbl[value_cols] = tbl[value_cols].applymap(lambda x: f"{x:,.0f}")
+        tbl['Total %'] = tbl['Total %'].map(lambda x: f"{x:.2f}%")
+        return tbl
 
-        # ----------------------------- PATIENT COUNT TABLE -----------------------------
-        patient_table = build_tables(df_filtered)
-        if len(patient_table) == 0:
-            st.info("No patient data available for this period.")
-        else:
-            st.subheader("Patient Count")
-            st.dataframe(patient_table, use_container_width=True)
+    # ===================== CATEGORY TOGGLES =====================
+    category_levels = sorted(df_filtered['Category Level'].dropna().unique())
 
-        # ----------------------------- REVENUE TABLE -----------------------------
-        revenue_table = build_revenue_table(df_filtered)
-        if len(revenue_table) == 0:
-            st.info("No revenue data available for this period.")
-        else:
-            st.subheader("Revenue")
-            st.dataframe(revenue_table, use_container_width=True)
+    for category in category_levels:
+        df_category = df_filtered[df_filtered['Category Level'] == category]
+        if df_category.empty:
+            continue
+        with st.expander(f"Category Level: {category}", expanded=False):
+            patient_table = build_patient_table(df_category)
+            if patient_table.empty:
+                st.info("No patient data available.")
+            else:
+                st.subheader("Patient Count")
+                st.dataframe(patient_table, use_container_width=True, hide_index=True)
 
-        st.divider()
+            revenue_table = build_revenue_table(df_category)
+            if revenue_table.empty:
+                st.info("No revenue data available.")
+            else:
+                st.subheader("Revenue")
+                st.dataframe(revenue_table, use_container_width=True, hide_index=True)

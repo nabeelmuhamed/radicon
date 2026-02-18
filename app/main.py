@@ -12,6 +12,15 @@ from revenue import revenue
 from ICD import ICD
 
 # =====================================================
+# PAGE CONFIG (MUST BE FIRST STREAMLIT COMMAND)
+# =====================================================
+st.set_page_config(
+    page_title="Radicon Dashboard",
+    page_icon="radicon-logo.png",
+    layout="wide"
+)
+
+# =====================================================
 # DATABASE CONNECTION
 # =====================================================
 conn = mysql.connector.connect(
@@ -33,8 +42,9 @@ def check_credentials(username, password):
     )
     return cursor.fetchone() is not None
 
+
 def login_page():
-    st.title("🔐 Radicon Dashboard Login")
+    st.markdown("## 🔐 Radicon Dashboard Login")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
 
@@ -44,6 +54,7 @@ def login_page():
             st.rerun()
         else:
             st.error("❌ Invalid username or password")
+
 
 # =====================================================
 # SESSION AUTH
@@ -56,13 +67,80 @@ if not st.session_state.authenticated:
     st.stop()
 
 # =====================================================
-# PAGE CONFIG
+# CUSTOM CSS
 # =====================================================
-st.set_page_config(
-    page_title="Radicon Dashboard",
-    page_icon="radicon-logo.png",
-    layout="wide"
-)
+st.markdown("""
+<style>
+.js-plotly-plot .legend {
+    max-height: 150px !important;
+    overflow-y: auto !important;
+}
+
+.reportview-container, .main {
+    background-color: #f5f5f5 !important;
+    color: #1B365D !important;
+}
+
+.stMetric, .stDataFrame, .stPlotlyChart {
+    background-color: #ffffff !important;
+    color: #1B365D !important;
+    padding: 15px;
+    border-radius: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: #1B365D !important;
+}
+
+.stDataFrame table {
+    background-color: #ffffff !important;
+    color: #1B365D !important;
+}
+
+.js-plotly-plot .main-svg text,
+.js-plotly-plot .main-svg tspan {
+    fill: #1B365D !important;
+}
+
+[data-testid="stSegmentedControl"] {
+    display: flex !important;
+    gap: 6px !important;
+    margin-bottom: 20px !important;
+}
+
+[data-testid="stSegmentedControl"] button {
+    border-radius: 50px !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    padding: 8px 16px !important;
+    border: 1px solid #154080 !important;
+    color: #154080 !important;
+    background-color: #ffffff !important;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    transition: all 0.2s ease-in-out;
+}
+
+[data-testid="stSegmentedControl"] button[aria-pressed="true"] {
+    background-color: #154080 !important;
+    color: #ffffff !important;
+    box-shadow: 0 6px 12px rgba(21,64,128,0.4);
+}
+
+[data-testid="stSegmentedControl"] button:hover {
+    background-color: #e6f0ff !important;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+}
+</style>
+""", unsafe_allow_html=True)
+
+# =====================================================
+# SIDEBAR LOGOUT
+# =====================================================
+if st.sidebar.button("🚪 Logout"):
+    st.session_state.authenticated = False
+    st.rerun()
 
 # =====================================================
 # DATA LOADING
@@ -73,6 +151,7 @@ def load_data():
         "main": pd.read_parquet("billwise.parquet"),
         "dfs": pd.read_parquet("billwise.parquet"),
         "icd": pd.read_parquet("icd.parquet"),
+        #"appo": pd.read_parquet("appof.parquet"),
     }
 
 data = load_data()
@@ -86,8 +165,8 @@ if "initialized" not in st.session_state:
     st.session_state.end_date = df["Date"].max().date()
 
     for col in [
-        "Cash/Ins","Clinic","Department","Doctor",
-        "CPT Type","I.Company","AgeGroup","Nationality"
+        "Cash/Ins", "Clinic", "Department", "Doctor",
+        "CPT Type", "I.Company", "AgeGroup", "Nationality"
     ]:
         st.session_state[col] = []
 
@@ -98,10 +177,6 @@ if "initialized" not in st.session_state:
 # =====================================================
 def global_filters(df):
     st.sidebar.header("Filters")
-
-    if st.sidebar.button("🚪 Logout"):
-        st.session_state.authenticated = False
-        st.rerun()
 
     c1, c2 = st.sidebar.columns(2)
     start = c1.date_input("Start Date", key="start_date")
@@ -118,14 +193,14 @@ def global_filters(df):
         return filtered[filtered[col].isin(sel)] if sel else filtered
 
     for col, label in [
-        ("Cash/Ins","Cash / Insurance"),
-        ("Clinic","Clinic"),
-        ("Department","Department"),
-        ("Doctor","Doctor"),
-        ("CPT Type","CPT Type"),
-        ("I.Company","Insurance Company"),
-        ("AgeGroup","Age Group"),
-        ("Nationality","Nationality"),
+        ("Cash/Ins", "Cash / Insurance"),
+        ("Clinic", "Clinic"),
+        ("Department", "Department"),
+        ("Doctor", "Doctor"),
+        ("CPT Type", "CPT Type"),
+        ("I.Company", "Insurance Company"),
+        ("AgeGroup", "Age Group"),
+        ("Nationality", "Nationality"),
     ]:
         filtered = multi(col, label)
 
@@ -134,8 +209,8 @@ def global_filters(df):
         st.session_state.end_date = df["Date"].max().date()
 
         for key in [
-            "Cash/Ins","Clinic","Department","Doctor",
-            "CPT Type","I.Company","AgeGroup","Nationality"
+            "Cash/Ins", "Clinic", "Department", "Doctor",
+            "CPT Type", "I.Company", "AgeGroup", "Nationality"
         ]:
             st.session_state[key] = []
 
@@ -151,8 +226,8 @@ filtered_df, start_date, end_date = global_filters(df)
 def apply_filters_no_date(df):
     filtered = df.copy()
     for col in [
-        "Cash/Ins","Clinic","Department","Doctor",
-        "CPT Type","I.Company","AgeGroup","Nationality"
+        "Cash/Ins", "Clinic", "Department", "Doctor",
+        "CPT Type", "I.Company", "AgeGroup", "Nationality"
     ]:
         sel = st.session_state.get(col, [])
         if sel:
@@ -161,24 +236,17 @@ def apply_filters_no_date(df):
 
 dfs_filtered = apply_filters_no_date(data["dfs"])
 
-# =====================================================
-# FILTER ICD (DATE + GLOBAL FILTERS)
-# =====================================================
-def filter_icd(icd):
-    filtered = icd.copy()
 
-    if "Date" in filtered.columns:
-        filtered["Date"] = pd.to_datetime(filtered["Date"], errors="coerce")
-        start = pd.to_datetime(st.session_state.start_date)
-        end = pd.to_datetime(st.session_state.end_date)
-        filtered = filtered[
-            (filtered["Date"] >= start) &
-            (filtered["Date"] <= end)
-        ]
+# =====================================================
+# FILTER ICD
+# =====================================================
+def filter_icd(df):
+    filtered = df.copy()
 
     for col in [
-        "Cash/Ins","Clinic","Department","Doctor",
-        "CPT Type","I.Company","AgeGroup","Nationality"
+        "Doctor", "Clinic", "I.Company",
+        "AgeGroup", "Nationality",
+        "Department", "Insurance Status"
     ]:
         if col in filtered.columns:
             sel = st.session_state.get(col, [])
@@ -189,25 +257,24 @@ def filter_icd(icd):
 
 icd_filtered = filter_icd(data["icd"])
 
-
 # =====================================================
 # NAVIGATION
 # =====================================================
 st.title("Radicon Healthcare Dashboard")
 
 pages = [
-    ("Summary","summary"),
-    ("Clinic Overview","clinic"),
-    ("Revenue Overview","revenue"),
-    ("Doctor Overview","doctor"),
-    ("Insurance Demographics","insurance"),
-    ("CPT View","cpt"),
-    ("ICD View","icd")
+    ("Summary", "summary"),
+    ("Clinic Overview", "clinic"),
+    ("Revenue Overview", "revenue"),
+    ("Doctor Overview", "doctor"),
+    ("Insurance Demographics", "insurance"),
+    ("Treatment/Procedure View", "cpt"),
+    ("Diagnosis View", "icd")
 ]
 
 selected_label = st.segmented_control(
     "Navigate:",
-    options=[label for label,_ in pages],
+    options=[label for label, _ in pages],
     default="Summary"
 )
 
@@ -232,8 +299,7 @@ elif current_page == "insurance":
     insurance(filtered_df)
 
 elif current_page == "cpt":
-    CPT(filtered_df, dfs_filtered, icd_filtered)
+    CPT(filtered_df, dfs_filtered, data["icd"])
 
 elif current_page == "icd":
-    ICD(filtered_df, dfs_filtered, icd_filtered)
-
+    ICD(icd_filtered)

@@ -123,13 +123,60 @@ def clinic(df):
     # Hourly Visits
     # -----------------------------
     hourly_visits = df.groupby('Time Slot')['CID'].nunique().reset_index(name='Visits').sort_values('Time Slot')
+
     fig = px.bar(
-        hourly_visits, x="Time Slot", y="Visits",
-        text="Visits", title="Unique Patient Visits by Time Slot"
+        hourly_visits,
+        x="Time Slot",
+        y="Visits",
+        text="Visits",
+        title="Unique Patient Visits by Time Slot"
     )
+
     fig.update_traces(textposition="outside", cliponaxis=False)
     fig.update_layout(**COMMON_LAYOUT)
+
     st.plotly_chart(fig, use_container_width=True)
+
+
+    # -----------------------------
+    # Weekday vs Time Slot Heatmap
+    # -----------------------------
+
+    # Make sure Date column is datetime
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+
+    # Extract weekday name
+    df['Weekday'] = df['Date'].dt.day_name()
+
+    # Optional: Set weekday order properly
+    weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    df['Weekday'] = pd.Categorical(df['Weekday'], categories=weekday_order, ordered=True)
+
+    # Create pivot table
+    heatmap_data = (
+        df.groupby(['Weekday', 'Time Slot'])['CID']
+        .nunique()
+        .reset_index()
+        .pivot(index='Weekday', columns='Time Slot', values='CID')
+        .fillna(0)
+    )
+
+    # Sort columns if needed
+    heatmap_data = heatmap_data.sort_index()
+
+    # Create heatmap
+    fig = px.imshow(
+        heatmap_data,
+        text_auto=True,
+        aspect="auto",
+        color_continuous_scale="Turbo",
+        title="Unique Patient Visits by Weekday and Time Slot"
+    )
+
+    fig.update_layout(**COMMON_LAYOUT)
+
+    st.plotly_chart(fig, use_container_width=True)
+
 
     # -----------------------------
     # Department Distribution
